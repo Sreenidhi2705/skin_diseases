@@ -1,0 +1,126 @@
+import os
+import shutil
+import zipfile
+from sklearn.model_selection import train_test_split
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.metrics import classification_report, confusion_matrix
+import tensorflow as tf
+from tensorflow.keras import layers, models
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+
+# Step 1: Extract ZIP file
+zip_path = '/content/skin diseasess.zip'
+extract_path = '/content/dataset_raw'
+
+with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+    zip_ref.extractall(extract_path)
+
+print(f"Extracted dataset to: {extract_path}\n")
+
+# Step 2: Set dataset root path based on your inspection
+original_dataset_path = '/content/dataset_raw/IMG_CLASSES'
+
+if not os.path.exists(original_dataset_path):
+    raise Exception(f"Dataset root path '{original_dataset_path}' does not exist.")
+
+# Step 3: Prepare train/validation directories
+base_dir = '/content/skin_diseases_split'
+train_dir = os.path.join(base_dir, 'train')
+val_dir = os.path.join(base_dir, 'validation')
+os.makedirs(train_dir, exist_ok=True)
+os.makedirs(val_dir, exist_ok=True)
+
+# Step 4: Split dataset into train/validation folders
+for class_name in os.listdir(original_dataset_path):
+    class_path = os.path.join(original_dataset_path, class_name)
+    if os.path.isdir(class_path):
+        images = [f for f in os.listdir(class_path) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+        if len(images) == 0:
+            print(f"No images found in class folder '{class_name}', skipping...")
+            continue
+        
+        train_imgs, val_imgs = train_test_split(images, test_size=0.2, random_state=42)
+
+        os.makedirs(os.path.join(train_dir, class_name), exist_ok=True)
+        os.makedirs(os.path.join(val_dir, class_name), exist_ok=True)
+
+        for img in train_imgs:
+            shutil.copy(os.path.join(class_path, img), os.path.join(train_dir, class_name, img))
+        for img in val_imgs:
+            shutil.copy(os.path.join(class_path, img), os.path.join(val_dir, class_name, img))
+
+print("\nDataset successfully split into train/ and validation/ folders.")
+
+# Step 5: Setup ImageDataGenerators
+IMG_SIZE = (150, 150)
+BATCH_SIZE = 32
+
+train_datagen = ImageDataGenerator(rescale=1./255)
+val_datagen = ImageDataGenerator(rescale=1./255)
+
+train_generator = train_datagen.flow_from_directory(
+    train_dir,
+    target_size=IMG_SIZE,
+    batch_size=BATCH_SIZE,
+    class_mode='categorical'
+)
+
+validation_generator = val_datagen.flow_from_directory(
+    val_dir,
+    target_size=IMG_SIZE,
+    batch_size=BATCH_SIZE,
+    class_mode='categorical'
+)
+
+# Step 6: Build CNN model
+model = models.Sequential([
+    layers.Input(shape=(IMG_SIZE[0], IMG_SIZE[1], 3)),
+    layers.Conv2D(32, (3,3), activation='relu'),
+    layers.MaxPooling2D(2,2),
+    layers.Conv2D(64, (3,3), activation='relu'),
+    layers.MaxPooling2D(2,2),
+    layers.Conv2D(128, (3,3), activation='relu'),
+    layers.MaxPooling2D(2,2),
+    layers.Flatten(),
+    layers.Dense(512, activation='relu'),
+    layers.Dense(train_generator.num_classes, activation='softmax')
+])
+
+model.compile(optimizer='adam',
+              loss='categorical_crossentropy',
+              metrics=['accuracy'])
+
+# Step 7: Train model
+history = model.fit(
+    train_generator,
+    epochs=5,
+    validation_data=validation_generator
+)
+
+# Step 8: Plot accuracy
+plt.figure(figsize=(8,5))
+plt.plot(history.history['accuracy'], label='Training Accuracy')
+plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
+plt.title('Accuracy over Epochs')
+plt.legend()
+plt.grid()
+plt.show()
+
+# Step 9: Evaluate predictions on one batch
+val_images, val_labels = next(validation_generator)
+predictions = model.predict(val_images)
+predicted_labels = np.argmax(predictions, axis=1)
+true_labels = np.argmax(val_labels, axis=1)
+
+# Confusion matrix
+cm = confusion_matrix(true_labels, predicted_labels)
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+plt.xlabel('Predicted')
+plt.ylabel('Actual')
+plt.title('Confusion Matrix')
+plt.show()
+
+# Classification report
+print(classification_report(true_labels, predicted_labels, target_names=list(validation_generator.class_indices.keys())))s
