@@ -123,4 +123,4 @@ plt.title('Confusion Matrix')
 plt.show()
 
 # Classification report
-print(classification_report(true_labels, predicted_labels, target_names=list(validation_generator.class_indices.keys())))s
+print(classification_report(true_labels, predicted_labels, target_names=list(validation_generator.class_indices.keys())))
